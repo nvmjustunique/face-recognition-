@@ -21,7 +21,7 @@ class FaceRecognitionSystem:
     Supports master embedding creation, single image recognition, and real-time webcam recognition.
     """
     
-    def __init__(self, model_name: str = 'buffalo_l', threshold: float = 0.400):
+    def __init__(self, model_name: str = 'buffalo_l', threshold: float = 0.400, embedding_path: str = 'master_embedding.npy'):
         """
         Initialize the face recognition system.
         
@@ -32,9 +32,33 @@ class FaceRecognitionSystem:
         self.threshold = threshold
         self.master_embedding = None
         self.face_analyzer = None
+        self.embedding_path = embedding_path
         
         # Initialize InsightFace
         self._initialize_insightface(model_name)
+        
+        # Try to load cached master embedding if available
+        self._load_master_embedding()
+
+    def _save_master_embedding(self):
+        """Persist the master embedding to disk to avoid rebuilding each run."""
+        try:
+            if self.master_embedding is not None and self.embedding_path:
+                np.save(self.embedding_path, self.master_embedding)
+                print(f"💾 Saved master embedding to {self.embedding_path}")
+        except Exception as e:
+            print(f"⚠️  Failed to save master embedding: {e}")
+
+    def _load_master_embedding(self):
+        """Load the master embedding from disk if present."""
+        try:
+            if self.embedding_path and os.path.exists(self.embedding_path):
+                data = np.load(self.embedding_path)
+                if isinstance(data, np.ndarray) and data.size > 0:
+                    self.master_embedding = data
+                    print(f"📦 Loaded cached master embedding from {self.embedding_path}")
+        except Exception as e:
+            print(f"⚠️  Failed to load master embedding: {e}")
         
     def _initialize_insightface(self, model_name: str):
         """Initialize InsightFace with the specified model."""
@@ -172,6 +196,9 @@ class FaceRecognitionSystem:
         print(f"   - Successful face extractions: {successful_extractions}")
         print(f"   - Success rate: {successful_extractions/len(images)*100:.1f}%")
         
+        # Persist for future runs
+        self._save_master_embedding()
+        
         return True
     
     def recognize_person(self, image_path: str) -> Tuple[bool, float, str]:
@@ -236,12 +263,15 @@ class FaceRecognitionSystem:
                 break
             
             # Flip frame horizontally for mirror effect
-            frame = cv2.flip(frame, 1)
+            # frame = cv2.flip(frame, 1)
             
             # Detect faces
             faces = self.face_analyzer.get(frame)
             
             # Process each detected face
+            # Compute frame center (x) to determine left/right of detected face centers
+            frame_height, frame_width = frame.shape[:2]
+            frame_center_x = frame_width // 2
             for face in faces:
                 # Get face coordinates
                 bbox = face.bbox.astype(int)
@@ -266,6 +296,25 @@ class FaceRecognitionSystem:
                 # Draw bounding box
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 
+                # Compute face center and print left/right relative to frame center
+                face_center_x = (x1 + x2) // 2
+                direction = "Left" if face_center_x < frame_center_x else "Right"
+                # Normalized horizontal distance from frame center (0.0 to 1.0)
+                # Use half-width as denominator to cap at 1.0 when at frame edge
+                norm_offset = abs((face_center_x - frame_center_x) / (frame_width / 2))
+                norm_offset = float(max(0.0, min(1.0, norm_offset)))
+                print(f"➡️ Direction: {direction}, normalized_dist: {norm_offset:.3f}")
+                # Overlay direction and normalized distance near the bounding box
+                cv2.putText(
+                    frame,
+                    f"{direction} {norm_offset:.2f}",
+                    (x1, min(y2 + 25, frame_height - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    color,
+                    2
+                )
+
                 # Prepare text
                 similarity_text = f"{label} {status} ({similarity:.3f})"
                 
@@ -340,7 +389,12 @@ def main():
     
     if os.path.exists(person_photos_folder):
         print(f"\n📁 Found photos folder: {person_photos_folder}")
-        success = face_system.build_master_embedding(person_photos_folder)
+        # If we already have a cached embedding, skip building
+        if face_system.master_embedding is not None:
+            print("\n📦 Using cached master embedding (skipping rebuild)")
+            success = True
+        else:
+            success = face_system.build_master_embedding(person_photos_folder)
         
         if success:
             print("\n🎯 Master embedding built successfully!")
