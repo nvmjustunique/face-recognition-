@@ -13,6 +13,11 @@ import insightface
 from insightface.app import FaceAnalysis
 from insightface.data import get_image as ins_get_image
 import matplotlib.pyplot as plt
+import requests # for sending data to the server
+
+
+last_cmd = 'stop'
+
 
 
 class FaceRecognitionSystem:
@@ -238,6 +243,7 @@ class FaceRecognitionSystem:
         return is_person, similarity, message
     
     def webcam_recognition(self):
+        global last_cmd
         """
         Real-time face recognition using webcam.
         Shows bounding boxes, similarity scores, and labels.
@@ -296,13 +302,36 @@ class FaceRecognitionSystem:
                 # Draw bounding box
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 
-                # Compute face center and print left/right relative to frame center
+                # Compute face center and determine relative horizontal position
                 face_center_x = (x1 + x2) // 2
-                direction = "Left" if face_center_x < frame_center_x else "Right"
                 # Normalized horizontal distance from frame center (0.0 to 1.0)
                 # Use half-width as denominator to cap at 1.0 when at frame edge
                 norm_offset = abs((face_center_x - frame_center_x) / (frame_width / 2))
                 norm_offset = float(max(0.0, min(1.0, norm_offset)))
+                # Direction labeling with center threshold
+                center_threshold = 0.10
+                if norm_offset <= center_threshold:
+                    direction = "Center"
+                    if last_cmd != "stop":
+                        requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.0, "vel_y": 0.0})
+                        last_cmd = "stop"
+
+
+                else:
+                    direction = "Left" if face_center_x < frame_center_x else "Right"
+                    if direction == "Left":
+                        if last_cmd != "left":
+                            requests.post("http://10.42.4.9:8888/movement", json={"vel_x": -0.1, "vel_y": 0.0})
+                            last_cmd = "left"
+                        #requests.post("http://10.42.4.9:8888/movement", json={"vel_x": -0.1, "vel_y": 0.0})
+                    elif direction == "Right":
+                        if last_cmd != "right":
+                            requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.1, "vel_y": 0.0})
+                            last_cmd = "right"
+                        #requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.1, "vel_y": 0.0})
+                        #requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.1, "vel_y": 0.0})
+
+
                 print(f"➡️ Direction: {direction}, normalized_dist: {norm_offset:.3f}")
                 # Overlay direction and normalized distance near the bounding box
                 cv2.putText(
