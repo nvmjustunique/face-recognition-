@@ -1,0 +1,16 @@
+# Core dependencies for Face Recognition System
+opencv-python>=4.8.0
+numpy>=1.21.0
+insightface>=0.7.3
+onnxruntime>=1.15.0
+
+# Additional dependencies for enhanced functionality
+matplotlib>=3.5.0
+Pillow>=9.0.0
+
+# Optional: GPU acceleration (uncomment if you have CUDA)
+# onnxruntime-gpu>=1.15.0
+
+# Development dependencies (optional)
+# jupyter>=1.0.0
+# scikit-learn>=1.0.0

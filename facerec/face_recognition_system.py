@@ -273,86 +273,43 @@ class FaceRecognitionSystem:
             
             # Detect faces
             faces = self.face_analyzer.get(frame)
-            
-            # Process each detected face
+
             # Compute frame center (x) to determine left/right of detected face centers
             frame_height, frame_width = frame.shape[:2]
             frame_center_x = frame_width // 2
+
+            # Evaluate all faces and pick the highest-similarity match that passes threshold
+            best_person = None  # (similarity, bbox)
+            evaluated = []
             for face in faces:
-                # Get face coordinates
                 bbox = face.bbox.astype(int)
                 x1, y1, x2, y2 = bbox
-                
-                # Extract embedding and compute similarity
                 embedding = face.embedding
                 similarity = self._compute_cosine_similarity(embedding, self.master_embedding)
-                
-                # Determine label and color
                 is_person = similarity >= self.threshold
-                
+                evaluated.append((similarity, is_person, bbox))
                 if is_person:
-                    label = "Vijay patil"
-                    color = (0, 255, 0)  # Green
-                    status = "✅"
-                else:
-                    label = "Not Vijay patil"
-                    color = (0, 0, 255)  # Red
-                    status = "❌"
-                
-                # Draw bounding box
+                    if best_person is None or similarity > best_person[0]:
+                        best_person = (similarity, bbox)
+
+            # If no faces, gently stop
+            if len(faces) == 0:
+                if last_cmd != "stop":
+                    requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.0, "vel_y": 0.0})
+                    last_cmd = "stop"
+
+            # Do not draw any boxes for non-matching faces. Only draw for the best matching Vijay Patil.
+            if best_person is not None:
+                similarity, bbox = best_person
+                x1, y1, x2, y2 = bbox
+                color = (0, 255, 0)
+                label = "Vijay Patil ✅"
+                # Draw bounding box and label bubble
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                
-                # Compute face center and determine relative horizontal position
-                face_center_x = (x1 + x2) // 2
-                # Normalized horizontal distance from frame center (0.0 to 1.0)
-                # Use half-width as denominator to cap at 1.0 when at frame edge
-                norm_offset = abs((face_center_x - frame_center_x) / (frame_width / 2))
-                norm_offset = float(max(0.0, min(1.0, norm_offset)))
-                # Direction labeling with center threshold
-                center_threshold = 0.10
-                if norm_offset <= center_threshold:
-                    direction = "Center"
-                    if last_cmd != "stop":
-                        requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.0, "vel_y": 0.0})
-                        last_cmd = "stop"
-
-
-                else:
-                    direction = "Left" if face_center_x < frame_center_x else "Right"
-                    if direction == "Left":
-                        if last_cmd != "left":
-                            requests.post("http://10.42.4.9:8888/movement", json={"vel_x": -0.1, "vel_y": 0.0})
-                            last_cmd = "left"
-                        #requests.post("http://10.42.4.9:8888/movement", json={"vel_x": -0.1, "vel_y": 0.0})
-                    elif direction == "Right":
-                        if last_cmd != "right":
-                            requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.1, "vel_y": 0.0})
-                            last_cmd = "right"
-                        #requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.1, "vel_y": 0.0})
-                        #requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.1, "vel_y": 0.0})
-
-
-                print(f"➡️ Direction: {direction}, normalized_dist: {norm_offset:.3f}")
-                # Overlay direction and normalized distance near the bounding box
-                cv2.putText(
-                    frame,
-                    f"{direction} {norm_offset:.2f}",
-                    (x1, min(y2 + 25, frame_height - 10)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    color,
-                    2
-                )
-
-                # Prepare text
-                similarity_text = f"{label} {status} ({similarity:.3f})"
-                
-                # Get text size for background rectangle
+                similarity_text = f"{label} ({similarity:.3f})"
                 (text_width, text_height), _ = cv2.getTextSize(
                     similarity_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2
                 )
-                
-                # Draw background rectangle for text
                 cv2.rectangle(
                     frame,
                     (x1, y1 - text_height - 10),
@@ -360,8 +317,6 @@ class FaceRecognitionSystem:
                     color,
                     -1
                 )
-                
-                # Draw text
                 cv2.putText(
                     frame,
                     similarity_text,
@@ -369,6 +324,41 @@ class FaceRecognitionSystem:
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
                     (255, 255, 255),
+                    2
+                )
+
+            # Control and directional overlay for only the most similar face that passes threshold
+            if best_person is not None:
+                bbox = best_person[1]
+                x1, y1, x2, y2 = bbox
+                face_center_x = (x1 + x2) // 2
+                norm_offset = abs((face_center_x - frame_center_x) / (frame_width / 2))
+                norm_offset = float(max(0.0, min(1.0, norm_offset)))
+                center_threshold = 0.10
+                if norm_offset <= center_threshold:
+                    direction = "Center"
+                    if last_cmd != "stop":
+                        requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.0, "vel_y": 0.0})
+                        last_cmd = "stop"
+                else:
+                    direction = "Left" if face_center_x < frame_center_x else "Right"
+                    if direction == "Left":
+                        if last_cmd != "left":
+                            requests.post("http://10.42.4.9:8888/movement", json={"vel_x": -0.1, "vel_y": 0.0})
+                            last_cmd = "left"
+                    elif direction == "Right":
+                        if last_cmd != "right":
+                            requests.post("http://10.42.4.9:8888/movement", json={"vel_x": 0.1, "vel_y": 0.0})
+                            last_cmd = "right"
+
+                print(f"➡️ Direction: {direction}, normalized_dist: {norm_offset:.3f}")
+                cv2.putText(
+                    frame,
+                    f"{direction} {norm_offset:.2f}",
+                    (x1, min(y2 + 25, frame_height - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 255),
                     2
                 )
             

@@ -9,11 +9,11 @@ import numpy as np
 import os
 import glob
 from typing import List, Tuple, Optional
-import insightface
+# import insightface
 from insightface.app import FaceAnalysis
 from insightface.data import get_image as ins_get_image
-import matplotlib.pyplot as plt
-
+# import matplotlib.pyplot as plt
+import requests # for sending data to the server
 
 class FaceRecognitionSystem:
     """
@@ -240,41 +240,33 @@ class FaceRecognitionSystem:
             
             # Detect faces
             faces = self.face_analyzer.get(frame)
-            
-            # Process each detected face
+
+            # Compute frame center
+            frame_height, frame_width = frame.shape[:2]
+            frame_center_x = frame_width // 2
+
+            # Keep only the highest-similarity face that passes threshold
+            best_person = None  # (similarity, bbox)
             for face in faces:
-                # Get face coordinates
                 bbox = face.bbox.astype(int)
                 x1, y1, x2, y2 = bbox
-                
-                # Extract embedding and compute similarity
                 embedding = face.embedding
                 similarity = self._compute_cosine_similarity(embedding, self.master_embedding)
-                
-                # Determine label and color
-                is_person = similarity >= self.threshold
-                
-                if is_person:
-                    label = "Vijay patil"
-                    color = (0, 255, 0)  # Green
-                    status = "✅"
-                else:
-                    label = "Not Vijay patil"
-                    color = (0, 0, 255)  # Red
-                    status = "❌"
-                
-                # Draw bounding box
+                if similarity >= self.threshold:
+                    if best_person is None or similarity > best_person[0]:
+                        best_person = (similarity, bbox)
+
+            # Only draw a green box for the best matching Vijay Patil (if any)
+            if best_person is not None:
+                similarity, bbox = best_person
+                x1, y1, x2, y2 = bbox
+                color = (0, 255, 0)
+                label = "Vijay Patil ✅"
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                
-                # Prepare text
-                similarity_text = f"{label} {status} ({similarity:.3f})"
-                
-                # Get text size for background rectangle
+                similarity_text = f"{label} ({similarity:.3f})"
                 (text_width, text_height), _ = cv2.getTextSize(
                     similarity_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2
                 )
-                
-                # Draw background rectangle for text
                 cv2.rectangle(
                     frame,
                     (x1, y1 - text_height - 10),
@@ -282,8 +274,6 @@ class FaceRecognitionSystem:
                     color,
                     -1
                 )
-                
-                # Draw text
                 cv2.putText(
                     frame,
                     similarity_text,
@@ -291,6 +281,27 @@ class FaceRecognitionSystem:
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
                     (255, 255, 255),
+                    2
+                )
+
+            if best_person is not None:
+                bbox = best_person[1]
+                x1, y1, x2, y2 = bbox
+                face_center_x = (x1 + x2) // 2
+                norm_offset = abs((face_center_x - frame_center_x) / (frame_width / 2))
+                norm_offset = float(max(0.0, min(1.0, norm_offset)))
+                center_threshold = 0.10
+                if norm_offset <= center_threshold:
+                    direction = "Center"
+                else:
+                    direction = "Left" if face_center_x < frame_center_x else "Right"
+                cv2.putText(
+                    frame,
+                    f"{direction} {norm_offset:.2f}",
+                    (x1, min(y2 + 25, frame_height - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 255),
                     2
                 )
             
